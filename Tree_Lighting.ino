@@ -1,5 +1,3 @@
-#include "arduino_secrets.h"
-
 #include <WiFiNINA.h>
 #include <WiFiServer.h>
 #include <WiFiClient.h>
@@ -11,7 +9,7 @@ WiFiServer server(80);
 
 void setup() {
   Serial.begin(9600);
-  WiFi.begin(SECRET_SSID, SECRET_PASS);
+  WiFi.begin("wilsonhub", "tinyearth490");
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
