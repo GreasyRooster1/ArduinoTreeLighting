@@ -1,16 +1,10 @@
 #include <memory>
-#include <WiFiNINA.h>
-#include <WiFiServer.h>
-#include <WiFiClient.h>
 #include <FastLED.h>
-
-#define SECRET_SSID "wilsonhub"
-#define SECRET_PASS "tinyearth490"
-
 #define LED_PIN 5
-#define NUM_LEDS 1000 
+#define BUTTON_PIN 4
+#define NUM_LEDS 600 
 #define DEFAULT_BRIGHTNESS 20 
-#define PROGRAM_COUNT 2
+#define PROGRAM_COUNT 3
 
 #define MAP_SPIRAL 5
 #define MAP_STAR 6
@@ -94,15 +88,30 @@ class MappingTest : public Program{
   }
 };
 
+class BitTest : public Program{
+  public:
+  BitTest() = default;
+  String getId() {
+    return "MAP_TEST";
+  };
+
+  void run(){
+    int frame = int(floor(frameCount/60.0))%11;
+    for (int i = 0; i < NUM_LEDS; i++) {
+      if(bitRead(i,frame)){
+        leds[i] = CRGB::Blue;
+      }else{
+        leds[i] = CRGB::Black;
+      }
+    }
+  }
+};
+
+int currentProgIndex = 0;
 Program* currentProgram;
 std::unique_ptr<Program> programs[PROGRAM_COUNT];
 
-char ssid[] = SECRET_SSID;    
-char pass[] = SECRET_PASS;    
 int keyIndex = 0;            
-
-int status = WL_IDLE_STATUS;
-WiFiServer server(80);
 
 void setup() {
   randomSeed(analogRead(A0));
@@ -114,7 +123,6 @@ void setup() {
   fillColor(CRGB::Red);
 
   setupPrograms();
-  setupServer();
   setupLighting();
   
   pinMode(LED_BUILTIN, OUTPUT);
@@ -126,13 +134,18 @@ void setup() {
 }
 
 void loop() {
-  runServer();
-  //runLighting();
+  runLighting();
+  if(digitalRead(BUTTON_PIN)==HIGH){
+    currentProgIndex++;
+    currentProgIndex=currentProgIndex%PROGRAM_COUNT;
+    switchProgram(programs[currentProgIndex].get());
+  }
 }
 
 void setupPrograms(){
   programs[0] = std::unique_ptr<Firefly>(new Firefly());
   programs[1] = std::unique_ptr<MappingTest>(new MappingTest());
+  programs[2] = std::unique_ptr<BitTest>(new BitTest());
 }
 
 /*LIGHTING*/
@@ -163,122 +176,6 @@ void fillColor(CRGB color){
   for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = color;
   }
-}
-
-
-/* SERVER */
-void setupServer(){
-  Serial.begin(9600);      // initialize serial communication
-  pinMode(LED_BUILTIN, OUTPUT);      // set the LED pin mode
-
-  // check for the WiFi module:
-  if (WiFi.status() == WL_NO_MODULE) {
-    Serial.println("Communication with WiFi module failed!");
-    // don't continue
-    while (true);
-  }
-
-  String fv = WiFi.firmwareVersion();
-  if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
-    Serial.println("Please upgrade the firmware");
-  }
-
-  // attempt to connect to WiFi network:
-  while (status != WL_CONNECTED) {
-    Serial.print("Attempting to connect to Network named: ");
-    Serial.println(ssid);                   // print the network name (SSID);
-
-    // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
-    status = WiFi.begin(ssid, pass);
-    // wait 10 seconds for connection:
-    delay(10000);
-  }
-  server.begin();                           // start the web server on port 80
-  printWifiStatus();
-}
-
-void runServer(){
- WiFiClient client = server.available();   // listen for incoming clients
-
-  if (client) {                             // if you get a client,
-    Serial.println("new client");           // print a message out the serial port
-    String currentLine = "";                // make a String to hold incoming data from the client
-    while (client.connected()) {            // loop while the client's connected
-      if (client.available()) {             // if there's bytes to read from the client,
-        char c = client.read();             // read a byte, then
-        Serial.write(c);                    // print it out to the serial monitor
-        if (c == '\n') {                    // if the byte is a newline character
-
-          // if the current line is blank, you got two newline characters in a row.
-          // that's the end of the client HTTP request, so send a response:
-          if (currentLine.length() == 0) {
-            // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-            // and a content-type so the client knows what's coming, then a blank line:
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println();
-            client.print("Current Program: ");
-            client.print(currentProgram->getId());
-            client.print("<br/>");
-
-            // the content of the HTTP response follows the header:
-            for(int i=0;i<PROGRAM_COUNT;i++){
-              client.print("<a href='/");
-              client.print(programs[i]->getId());
-              client.print("'>");
-              client.print(programs[i]->getId());
-              client.print("</a><br>");
-            }
-
-            // The HTTP response ends with another blank line:
-            client.println();
-            // break out of the while loop:
-            break;
-          } else {    // if you got a newline, then clear currentLine:
-            currentLine = "";
-          }
-        } else if (c != '\r') {  // if you got anything else but a carriage return character,
-          currentLine += c;      // add it to the end of the currentLine
-        }
-
-
-        // Check to see if the client request was a key
-        for(int i=0;i<PROGRAM_COUNT;i++){
-          if (currentLine.endsWith("GET /"+programs[i]->getId())) {
-            Serial.print("/* SWITCHING PROGRAMS: ");
-            Serial.println(programs[i]->getId());
-            switchProgram(programs[i].get());
-          }
-        }
-        if (currentLine.endsWith("GET /H")) {
-          digitalWrite(LED_BUILTIN, HIGH);               // GET /H turns the LED on
-        }
-        if (currentLine.endsWith("GET /L")) {
-          digitalWrite(LED_BUILTIN, LOW);                // GET /L turns the LED off
-        }
-      }
-    }
-    // close the connection:
-    client.stop();
-    Serial.println("client disconnected");
-  }
-}
-
-void printWifiStatus() {
-  Serial.print("SSID: ");
-  Serial.println(WiFi.SSID());
-  
-  IPAddress ip = WiFi.localIP();
-  Serial.print("IP Address: ");
-  Serial.println(ip);
-  
-  long rssi = WiFi.RSSI();
-  Serial.print("signal strength (RSSI):");
-  Serial.print(rssi);
-  Serial.println(" dBm");
-  
-  Serial.print("To see this page in action, open a browser to http://");
-  Serial.println(ip);
 }
 
 /* ERROR */
